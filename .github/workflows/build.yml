@@ -1,0 +1,1583 @@
+# =====================================================================
+#  Aurora Skies: kompletter Build in EINER Datei
+#  Legt den gesamten Mod-Quellcode an, erzeugt alle Himmel, Texturen und
+#  Sounds und baut daraus die fertige .jar und die Resource-Packs.
+#
+#  Benutzung: in ein (privates) GitHub-Repo unter
+#      .github/workflows/build.yml
+#  legen, dann im Tab "Actions" -> "Build Aurora Skies" -> "Run workflow".
+#  Ergebnis: unten im Lauf unter "Artifacts" herunterladen.
+# =====================================================================
+name: Build Aurora Skies
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Java 21 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Werkzeuge installieren (numpy, scipy, Pillow, ffmpeg)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg
+          pip install numpy scipy pillow
+
+      - name: Mod-Quellcode anlegen
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$(dirname 'aurora-mod/build.gradle')"
+          cat > 'aurora-mod/build.gradle' <<'AURORA_EOF'
+          plugins {
+              id 'fabric-loom' version '1.10-SNAPSHOT'
+          }
+
+          version = project.mod_version
+          group = project.maven_group
+          base { archivesName = project.archives_base_name }
+
+          dependencies {
+              minecraft "com.mojang:minecraft:${project.minecraft_version}"
+              mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+              modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+              modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+          }
+
+          processResources {
+              inputs.property "version", project.version
+              filesMatching("fabric.mod.json") { expand "version": project.version }
+          }
+
+          tasks.withType(JavaCompile).configureEach { it.options.release = 21 }
+          java { withSourcesJar(); sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/settings.gradle')"
+          cat > 'aurora-mod/settings.gradle' <<'AURORA_EOF'
+          pluginManagement {
+              repositories {
+                  maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          rootProject.name = 'aurora'
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/gradle.properties')"
+          cat > 'aurora-mod/gradle.properties' <<'AURORA_EOF'
+          org.gradle.jvmargs=-Xmx2G
+          org.gradle.parallel=true
+
+          # Fabric - https://fabricmc.net/develop
+          minecraft_version=1.21.4
+          yarn_mappings=1.21.4+build.8
+          loader_version=0.16.14
+          fabric_version=0.119.2+1.21.4
+
+          mod_version=1.0.0
+          maven_group=dev.aurora
+          archives_base_name=aurora-skies
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/LIESMICH.md')"
+          cat > 'aurora-mod/LIESMICH.md' <<'AURORA_EOF'
+          # Aurora Skies: Fabric-Mod (Minecraft Java 1.21.4)
+
+          ## Features
+          | Feature | Beschreibung |
+          |---|---|
+          | **Aurora-Menü** | **Rechts-Shift** im Spiel oder der Button **✦ Aurora** oben rechts im Haupt- und Pausemenü. Alles per Klick an/aus. |
+          | **Himmel** | *Klassik* (Tag mit Wolken, Sonnenuntergang, Nordlicht + Milchstraße, End-Nebel) oder *Deep Space* (Schwarzes Loch mit Akkretionsscheibe + Ringplanet als Nachthimmel) |
+          | **UI-Sounds & Musik** | eigener Button-Klick, Toasts, Erfolg, Level-Up, XP, Ambient-Menümusik |
+          | **Extras** | eigenes Titel-Panorama, Sonne, Mondphasen, Wolken, Splash-Texte |
+          | **Keystrokes-HUD** | zeigt live W/A/S/D (deine echte Belegung), LMB/RMB mit CPS und Leertaste. Animiert, in Akzentfarbe, 4 Positionen, Größe 50–200 % |
+          | **Tastatur-Sounds** | Profile *Creamy*, *Thocky*, *Clacky*, *Eigene*: Anschlag + leiser Upstroke, tiefer Sound für Leertaste/Enter/Shift, Lautstärke-Regler, wahlweise nur beim Tippen oder auch im Spiel |
+          | **Cursor-Glow** | weicher Leuchtschein am Mauszeiger in allen Menüs, Nachzieh-Spur, Puls beim Klicken, 6 Farben, Größe einstellbar |
+
+          Die Einstellungen werden in `.minecraft/config/aurora.json` gespeichert.
+
+          ## Himmel brauchen FabricSkyboxes
+          Sounds, HUD, Glow, Menü, Panorama, Sonne und Mond laufen allein. Für die Himmel muss zusätzlich
+          **FabricSkyboxes** (Modrinth) installiert sein.
+
+          ## Mod bauen (einmalig ca. 10 Minuten)
+          1. **JDK 21** installieren (z. B. Adoptium Temurin 21).
+          2. **IntelliJ IDEA Community** installieren, Ordner `aurora-mod` öffnen und warten, bis Gradle fertig ist.
+             (IntelliJ lädt Gradle 8.12 automatisch über `gradle/wrapper/gradle-wrapper.properties`.)
+          3. Rechts im Gradle-Fenster `Tasks > build > build` doppelklicken.
+          4. Die fertige Mod liegt danach in `build/libs/aurora-skies-1.0.0.jar`. Diese Datei in `.minecraft/mods` kopieren,
+             zusammen mit **Fabric API** und **FabricSkyboxes**.
+
+          Testen ohne eigenes Minecraft: `Tasks > fabric > runClient`.
+
+          Falls beim Bauen Versionsfehler kommen: die aktuellen Nummern für 1.21.4 stehen auf https://fabricmc.net/develop
+          (Werte in `gradle.properties` eintragen).
+
+          ## Eigene Sounds / eigene Himmel
+          - **Tastatur:** Ein Resource-Pack mit `assets/aurora/sounds.json`, das `key.custom.press`, `key.custom.release` und
+            `key.custom.big` ersetzt, und im Menü das Profil „Eigene“ wählen.
+          - **Himmel:** Die PNGs in `src/main/resources/resourcepacks/aurora_skies/assets/aurora/textures/sky/<stil>/`
+            (6 Seiten: north/east/south/west/top/bottom) austauschen. Für OptiFine die 3×2-Kachel in `optifine/sky/`.
+            Bei fremden Bildern nur solche nutzen, die du kommerziell verwenden darfst.
+
+          ## Projektstruktur
+          ```
+          src/main/java/dev/aurora/
+            AuroraClient.java      Einstieg: Packs, Tastenbelegung, HUD, Glow, Menü-Button
+            AuroraConfig.java      Einstellungen (JSON)
+            KeySounds.java         Tastatur-Sounds
+            KeystrokesHud.java     Tastenanzeige + CPS
+            CursorGlow.java        Mauszeiger-Glow
+            Palette.java           Farben
+            gui/AuroraConfigScreen.java, gui/ValueSlider.java
+            mixin/KeyboardMixin.java, mixin/MouseMixin.java
+          src/main/resources/
+            resourcepacks/aurora_skies      Basis-Pack (Himmel Klassik, UI-Sounds, Musik, …)
+            resourcepacks/aurora_deepspace  Deep-Space-Himmel + Panorama
+            assets/aurora/sounds            Tastatur-Sounds (selbst erzeugt)
+          ```
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/LIZENZ.txt')"
+          cat > 'aurora-mod/LIZENZ.txt' <<'AURORA_EOF'
+          Aurora Skies - Lizenz
+          =====================
+
+          Copyright (c) 2026 [DEIN NAME / STUDIO]. Alle Rechte vorbehalten.
+
+          Alle Texturen, Skyboxen, Sounds und die Musik in diesem Paket sind Originalwerke
+          und enthalten keine Dateien aus Minecraft.
+
+          Du darfst:
+            - das Paket privat nutzen, auch auf Servern und in Videos/Streams.
+
+          Du darfst NICHT:
+            - das Paket oder Teile davon weiterverbreiten, neu hochladen oder weiterverkaufen,
+            - Dateien daraus in eigene Packs oder Mods übernehmen.
+
+          NICHT OFFIZIELLES MINECRAFT-PRODUKT. NICHT VON MOJANG ODER MICROSOFT GENEHMIGT
+          ODER MIT IHNEN VERBUNDEN.
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/resources/fabric.mod.json')"
+          cat > 'aurora-mod/src/main/resources/fabric.mod.json' <<'AURORA_EOF'
+          {
+            "schemaVersion": 1,
+            "id": "aurora",
+            "version": "${version}",
+            "name": "Aurora Skies",
+            "description": "Custom Skies, UI-Sounds, Keystrokes-HUD, cremige Tastatur-Sounds und Cursor-Glow. Menü: Rechte Shift-Taste.",
+            "authors": ["DEIN NAME"],
+            "license": "All-Rights-Reserved",
+            "icon": "assets/aurora/icon.png",
+            "environment": "client",
+            "entrypoints": { "client": ["dev.aurora.AuroraClient"] },
+            "mixins": ["aurora.mixins.json"],
+            "depends": { "fabricloader": ">=0.16.0", "minecraft": "~1.21.4", "java": ">=21", "fabric-api": "*" },
+            "suggests": { "fabricskyboxes": "*" }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/resources/aurora.mixins.json')"
+          cat > 'aurora-mod/src/main/resources/aurora.mixins.json' <<'AURORA_EOF'
+          {
+            "required": true,
+            "package": "dev.aurora.mixin",
+            "compatibilityLevel": "JAVA_21",
+            "client": ["KeyboardMixin", "MouseMixin"],
+            "injectors": { "defaultRequire": 1 }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/resources/assets/aurora/lang/de_de.json')"
+          cat > 'aurora-mod/src/main/resources/assets/aurora/lang/de_de.json' <<'AURORA_EOF'
+          {
+            "key.categories.aurora": "Aurora Skies",
+            "key.aurora.menu": "Aurora-Menü öffnen",
+            "subtitles.aurora.key": "Tastenanschlag"
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/resources/assets/aurora/lang/en_us.json')"
+          cat > 'aurora-mod/src/main/resources/assets/aurora/lang/en_us.json' <<'AURORA_EOF'
+          {
+            "key.categories.aurora": "Aurora Skies",
+            "key.aurora.menu": "Open Aurora menu",
+            "subtitles.aurora.key": "Key press"
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/AuroraClient.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/AuroraClient.java' <<'AURORA_EOF'
+          package dev.aurora;
+
+          import dev.aurora.gui.AuroraConfigScreen;
+          import net.fabricmc.api.ClientModInitializer;
+          import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+          import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+          import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+          import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+          import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+          import net.fabricmc.fabric.api.client.screen.v1.Screens;
+          import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+          import net.fabricmc.fabric.api.resource.ResourcePackActivationType;
+          import net.fabricmc.loader.api.FabricLoader;
+          import net.fabricmc.loader.api.ModContainer;
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.gui.screen.GameMenuScreen;
+          import net.minecraft.client.gui.screen.TitleScreen;
+          import net.minecraft.client.gui.widget.ButtonWidget;
+          import net.minecraft.client.option.KeyBinding;
+          import net.minecraft.client.util.InputUtil;
+          import net.minecraft.resource.ResourcePackManager;
+          import net.minecraft.text.Text;
+          import net.minecraft.util.Identifier;
+          import org.lwjgl.glfw.GLFW;
+          import org.slf4j.Logger;
+          import org.slf4j.LoggerFactory;
+
+          public class AuroraClient implements ClientModInitializer {
+              public static final String MOD_ID = "aurora";
+              public static final Logger LOG = LoggerFactory.getLogger("Aurora");
+              private static KeyBinding menuKey;
+
+              @Override
+              public void onInitializeClient() {
+                  AuroraConfig.load();
+
+                  // Eingebaute Packs: Basis (Himmel Klassik, UI-Sounds, Musik, Panorama, Sonne/Mond) + Deep-Space-Himmel
+                  ModContainer mod = FabricLoader.getInstance().getModContainer(MOD_ID).orElseThrow();
+                  ResourceManagerHelper.registerBuiltinResourcePack(Identifier.of(MOD_ID, "aurora_skies"), mod,
+                          Text.literal("Aurora Skies"), ResourcePackActivationType.DEFAULT_ENABLED);
+                  ResourceManagerHelper.registerBuiltinResourcePack(Identifier.of(MOD_ID, "aurora_deepspace"), mod,
+                          Text.literal("Aurora Skies: Deep Space"), ResourcePackActivationType.NORMAL);
+
+                  menuKey = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.aurora.menu",
+                          InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, "key.categories.aurora"));
+
+                  ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                      while (menuKey.wasPressed()) client.setScreen(new AuroraConfigScreen(client.currentScreen));
+                  });
+
+                  HudRenderCallback.EVENT.register(KeystrokesHud::render);
+
+                  ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
+                      // Aurora-Button im Hauptmenü und Pausemenü
+                      if (screen instanceof TitleScreen || screen instanceof GameMenuScreen) {
+                          Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("✦ Aurora"),
+                                          b -> client.setScreen(new AuroraConfigScreen(screen)))
+                                  .dimensions(w - 86, 6, 80, 20).build());
+                      }
+                      ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> CursorGlow.render(ctx, mx, my, delta));
+                  });
+
+                  ClientLifecycleEvents.CLIENT_STARTED.register(client -> applyPacks());
+              }
+
+              /** Schaltet die eingebauten Packs passend zur Config an/aus und lädt Ressourcen neu, falls nötig. */
+              public static void applyPacks() {
+                  MinecraftClient mc = MinecraftClient.getInstance();
+                  ResourcePackManager m = mc.getResourcePackManager();
+                  AuroraConfig c = AuroraConfig.INSTANCE;
+                  boolean changed = false;
+                  for (String id : m.getIds()) {
+                      boolean want;
+                      if (id.contains("aurora_deepspace")) want = c.skyPack && c.skyStyle == 1;
+                      else if (id.contains("aurora_skies")) want = c.skyPack;
+                      else continue;
+                      boolean on = m.getEnabledIds().contains(id);
+                      if (want && !on) changed |= m.enable(id);
+                      if (!want && on) changed |= m.disable(id);
+                  }
+                  if (changed) mc.options.refreshResourcePacks(m);
+              }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/AuroraConfig.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/AuroraConfig.java' <<'AURORA_EOF'
+          package dev.aurora;
+
+          import com.google.gson.Gson;
+          import com.google.gson.GsonBuilder;
+          import net.fabricmc.loader.api.FabricLoader;
+
+          import java.io.Reader;
+          import java.io.Writer;
+          import java.nio.file.Files;
+          import java.nio.file.Path;
+
+          /** Alle Einstellungen, gespeichert in .minecraft/config/aurora.json */
+          public class AuroraConfig {
+              private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+              private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("aurora.json");
+              public static AuroraConfig INSTANCE = new AuroraConfig();
+
+              // Himmel + UI-Sounds (eingebautes Resource-Pack)
+              public boolean skyPack = true;
+              public int skyStyle = 1;         // 0 = Klassik (Nordlicht), 1 = Deep Space (Schwarzes Loch)
+
+              // Keystrokes
+              public boolean keystrokes = true;
+              public boolean showCps = true;
+              public int hudCorner = 0;        // 0 oben links, 1 oben rechts, 2 unten links, 3 unten rechts
+              public float hudScale = 1.0f;
+
+              // Tastatur-Sounds
+              public boolean keySounds = true;
+              public boolean keySoundsInGame = true; // auch beim Spielen (WASD usw.), nicht nur beim Tippen
+              public int keyProfile = 0;            // Index in KeySounds.PROFILES
+              public float keyVolume = 0.6f;
+
+              // Cursor-Glow + Akzentfarbe
+              public boolean cursorGlow = true;
+              public boolean cursorTrail = true;
+              public int color = 0;                 // Index in Palette.COLORS
+              public int glowSize = 56;
+
+              public static void load() {
+                  try {
+                      if (Files.exists(FILE)) try (Reader r = Files.newBufferedReader(FILE)) {
+                          AuroraConfig c = GSON.fromJson(r, AuroraConfig.class);
+                          if (c != null) INSTANCE = c;
+                      }
+                  } catch (Exception e) {
+                      AuroraClient.LOG.warn("Aurora: Config konnte nicht geladen werden, nutze Standardwerte", e);
+                  }
+                  INSTANCE.color = Math.floorMod(INSTANCE.color, Palette.COLORS.length);
+                  INSTANCE.skyStyle = Math.floorMod(INSTANCE.skyStyle, 2);
+                  INSTANCE.keyProfile = Math.floorMod(INSTANCE.keyProfile, KeySounds.PROFILES.length);
+              }
+
+              public static void save() {
+                  try (Writer w = Files.newBufferedWriter(FILE)) {
+                      GSON.toJson(INSTANCE, w);
+                  } catch (Exception e) {
+                      AuroraClient.LOG.warn("Aurora: Config konnte nicht gespeichert werden", e);
+                  }
+              }
+
+              public int rgb() { return Palette.COLORS[color].rgb(); }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/CursorGlow.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/CursorGlow.java' <<'AURORA_EOF'
+          package dev.aurora;
+
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.client.render.RenderLayer;
+          import net.minecraft.util.Identifier;
+          import net.minecraft.util.Util;
+
+          /** Weicher Leucht-Effekt am Mauszeiger in allen Menüs, mit Nachzieh-Spur und Klick-Puls. */
+          public final class CursorGlow {
+              private static final Identifier GLOW = Identifier.of(AuroraClient.MOD_ID, "textures/gui/glow.png");
+              private static final int TRAIL = 8;
+              private static final float[] TX = new float[TRAIL], TY = new float[TRAIL];
+              private static float gx, gy, pulse;
+              private static boolean initialised;
+              private static long lastFrame = Util.getMeasuringTimeMs();
+
+              public static void onClick() { pulse = 1f; }
+
+              public static void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+                  AuroraConfig cfg = AuroraConfig.INSTANCE;
+                  if (!cfg.cursorGlow) return;
+                  if (!initialised) {
+                      gx = mouseX; gy = mouseY;
+                      for (int i = 0; i < TRAIL; i++) { TX[i] = mouseX; TY[i] = mouseY; }
+                      initialised = true;
+                  }
+                  long now = Util.getMeasuringTimeMs();
+                  float dt = Math.min(100, now - lastFrame) / 1000f;
+                  lastFrame = now;
+                  float follow = 1f - (float) Math.exp(-dt * 35f);   // bildratenunabhängig
+                  float trail = 1f - (float) Math.exp(-dt * 40f);
+                  gx += (mouseX - gx) * follow;
+                  gy += (mouseY - gy) * follow;
+                  for (int i = TRAIL - 1; i > 0; i--) {
+                      TX[i] += (TX[i - 1] - TX[i]) * trail;
+                      TY[i] += (TY[i - 1] - TY[i]) * trail;
+                  }
+                  TX[0] = gx; TY[0] = gy;
+                  pulse = Math.max(0f, pulse - dt * 3f);              // Klick-Puls ca. 0,33 s
+
+                  int rgb = cfg.rgb();
+                  ctx.getMatrices().push();
+                  ctx.getMatrices().translate(0, 0, 500); // über allen Widgets
+
+                  if (cfg.cursorTrail) {
+                      for (int i = TRAIL - 1; i >= 1; i--) {
+                          float f = 1f - i / (float) TRAIL;
+                          blob(ctx, TX[i], TY[i], cfg.glowSize * 0.45f * f, (int) (70 * f), rgb);
+                      }
+                  }
+                  float size = cfg.glowSize * (1f + pulse * 0.7f);
+                  blob(ctx, gx, gy, size, (int) (120 + 80 * pulse), rgb);        // großer Schein
+                  blob(ctx, mouseX, mouseY, size * 0.28f, 200, 0xFFFFFF);        // heller Kern
+                  ctx.getMatrices().pop();
+              }
+
+              private static void blob(DrawContext ctx, float cx, float cy, float size, int alpha, int rgb) {
+                  int s = Math.max(2, Math.round(size));
+                  ctx.drawTexture(RenderLayer::getGuiTextured, GLOW, Math.round(cx - s / 2f), Math.round(cy - s / 2f),
+                          0f, 0f, s, s, s, s, Palette.argb(alpha, rgb));
+              }
+
+              private CursorGlow() {}
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/KeySounds.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/KeySounds.java' <<'AURORA_EOF'
+          package dev.aurora;
+
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.sound.PositionedSoundInstance;
+          import net.minecraft.sound.SoundEvent;
+          import net.minecraft.util.Identifier;
+          import net.minecraft.util.math.random.Random;
+          import org.lwjgl.glfw.GLFW;
+
+          /** Cremige Tastatur-Sounds. Sounddateien: assets/aurora/sounds/key/<profil>/ */
+          public final class KeySounds {
+              public static final String[] PROFILES = {"creamy", "thocky", "clacky", "custom"};
+              public static final String[] PROFILE_NAMES = {"Creamy", "Thocky", "Clacky", "Eigene"};
+              private static final Random RANDOM = Random.create();
+
+              private static SoundEvent event(String profile, String kind) {
+                  Identifier id = Identifier.of(AuroraClient.MOD_ID, "key." + profile + "." + kind);
+                  return SoundEvent.of(id); // nur clientseitig, keine Registrierung nötig
+              }
+
+              private static boolean isBig(int key) {
+                  return key == GLFW.GLFW_KEY_SPACE || key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER
+                          || key == GLFW.GLFW_KEY_BACKSPACE || key == GLFW.GLFW_KEY_LEFT_SHIFT
+                          || key == GLFW.GLFW_KEY_RIGHT_SHIFT || key == GLFW.GLFW_KEY_TAB;
+              }
+
+              /** action: 1 = gedrückt, 0 = losgelassen, 2 = gehalten (Wiederholung) */
+              public static void onKey(int key, int action) {
+                  AuroraConfig cfg = AuroraConfig.INSTANCE;
+                  MinecraftClient mc = MinecraftClient.getInstance();
+                  if (!cfg.keySounds || key == GLFW.GLFW_KEY_UNKNOWN) return;
+                  boolean typing = mc.currentScreen != null;
+                  if (!typing && !cfg.keySoundsInGame) return;
+                  if (action == GLFW.GLFW_REPEAT && !typing) return; // im Spiel kein Dauerfeuer
+
+                  String kind = action == GLFW.GLFW_RELEASE ? "release" : isBig(key) ? "big" : "press";
+                  float volume = cfg.keyVolume * (action == GLFW.GLFW_REPEAT ? 0.7f : 1f);
+                  play(event(PROFILES[cfg.keyProfile], kind), volume);
+              }
+
+              public static void preview() {
+                  play(event(PROFILES[AuroraConfig.INSTANCE.keyProfile], "press"), AuroraConfig.INSTANCE.keyVolume);
+              }
+
+              private static void play(SoundEvent ev, float volume) {
+                  if (volume <= 0.01f) return;
+                  float pitch = 0.95f + RANDOM.nextFloat() * 0.1f;
+                  MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(ev, pitch, volume));
+              }
+
+              private KeySounds() {}
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/KeystrokesHud.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/KeystrokesHud.java' <<'AURORA_EOF'
+          package dev.aurora;
+
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.font.TextRenderer;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.client.option.GameOptions;
+          import net.minecraft.client.option.KeyBinding;
+          import net.minecraft.client.render.RenderTickCounter;
+          import net.minecraft.text.Text;
+          import net.minecraft.util.Util;
+
+          import java.util.ArrayDeque;
+          import java.util.Deque;
+
+          /** Zeigt live an, welche Tasten gedrückt werden (WASD, Maus mit CPS, Leertaste). */
+          public final class KeystrokesHud {
+              private static final Deque<Long> LEFT = new ArrayDeque<>();
+              private static final Deque<Long> RIGHT = new ArrayDeque<>();
+              private static final float[] ANIM = new float[7];
+              private static long lastFrame = Util.getMeasuringTimeMs();
+
+              private static final int K = 22, GAP = 2;
+              private static final int W = K * 3 + GAP * 2;
+              private static final int H = K * 3 + GAP * 3 + 12;
+
+              public static void onClick(int button) {
+                  long now = Util.getMeasuringTimeMs();
+                  if (button == 0) LEFT.addLast(now);
+                  else if (button == 1) RIGHT.addLast(now);
+              }
+
+              private static int cps(Deque<Long> q) {
+                  long now = Util.getMeasuringTimeMs();
+                  while (!q.isEmpty() && now - q.peekFirst() > 1000) q.pollFirst();
+                  return q.size();
+              }
+
+              public static void render(DrawContext ctx, RenderTickCounter counter) {
+                  AuroraConfig cfg = AuroraConfig.INSTANCE;
+                  MinecraftClient mc = MinecraftClient.getInstance();
+                  if (!cfg.keystrokes || mc.player == null || mc.options.hudHidden || mc.getDebugHud().shouldShowDebugHud()) return;
+
+                  GameOptions o = mc.options;
+                  KeyBinding[] binds = {o.forwardKey, o.leftKey, o.backKey, o.rightKey, o.attackKey, o.useKey, o.jumpKey};
+                  long now = Util.getMeasuringTimeMs();
+                  float dt = Math.min(100, now - lastFrame) / 1000f; // Sekunden seit letztem Frame
+                  lastFrame = now;
+                  float speed = 1f - (float) Math.exp(-dt * 25f);       // ca. 40 ms Ein-/Ausblenden
+                  for (int i = 0; i < binds.length; i++) {
+                      float target = binds[i].isPressed() ? 1f : 0f;
+                      ANIM[i] += (target - ANIM[i]) * speed;
+                  }
+
+                  float s = cfg.hudScale;
+                  int sw = ctx.getScaledWindowWidth(), sh = ctx.getScaledWindowHeight();
+                  float x = (cfg.hudCorner % 2 == 0) ? 6 : sw - W * s - 6;
+                  float y = (cfg.hudCorner < 2) ? 6 : sh - H * s - 6;
+
+                  ctx.getMatrices().push();
+                  ctx.getMatrices().translate(x, y, 0);
+                  ctx.getMatrices().scale(s, s, 1f);
+                  TextRenderer tr = mc.textRenderer;
+                  int accent = cfg.rgb();
+
+                  key(ctx, tr, K + GAP, 0, K, K, label(o.forwardKey), ANIM[0], accent);
+                  key(ctx, tr, 0, K + GAP, K, K, label(o.leftKey), ANIM[1], accent);
+                  key(ctx, tr, K + GAP, K + GAP, K, K, label(o.backKey), ANIM[2], accent);
+                  key(ctx, tr, (K + GAP) * 2, K + GAP, K, K, label(o.rightKey), ANIM[3], accent);
+
+                  int half = (W - GAP) / 2, row = (K + GAP) * 2;
+                  String l = cfg.showCps ? cps(LEFT) + " CPS" : "LMB";
+                  String r = cfg.showCps ? cps(RIGHT) + " CPS" : "RMB";
+                  key(ctx, tr, 0, row, half, K, Text.literal(l), ANIM[4], accent);
+                  key(ctx, tr, half + GAP, row, W - half - GAP, K, Text.literal(r), ANIM[5], accent);
+
+                  int sy = row + K + GAP;
+                  int bg = Palette.lerp(ANIM[6], 0x90101018, Palette.argb(0xE0, accent));
+                  ctx.fill(0, sy, W, sy + 12, bg);
+                  int bar = Palette.lerp(ANIM[6], 0xFFBBBBCC, 0xFFFFFFFF);
+                  ctx.fill(W / 2 - 14, sy + 5, W / 2 + 14, sy + 7, bar);
+
+                  ctx.getMatrices().pop();
+              }
+
+              private static Text label(KeyBinding kb) {
+                  String t = kb.getBoundKeyLocalizedText().getString();
+                  return Text.literal(t.length() > 3 ? t.substring(0, 3) : t);
+              }
+
+              private static void key(DrawContext ctx, TextRenderer tr, int x, int y, int w, int h, Text text, float a, int accent) {
+                  int bg = Palette.lerp(a, 0x90101018, Palette.argb(0xE0, accent));
+                  ctx.fill(x, y, x + w, y + h, bg);
+                  ctx.fill(x, y, x + w, y + 1, Palette.lerp(a, 0x30FFFFFF, 0x90FFFFFF));       // obere Lichtkante
+                  ctx.fill(x, y + h - 1, x + w, y + h, Palette.argb(0x60, accent));           // Akzent unten
+                  int color = Palette.lerp(a, 0xFFE8E8F0, 0xFFFFFFFF);
+                  ctx.drawCenteredTextWithShadow(tr, text, x + w / 2, y + (h - 8) / 2 + 1, color);
+              }
+
+              private KeystrokesHud() {}
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/Palette.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/Palette.java' <<'AURORA_EOF'
+          package dev.aurora;
+
+          public final class Palette {
+              public record Swatch(String name, int rgb) {}
+
+              public static final Swatch[] COLORS = {
+                      new Swatch("Aurora Lila", 0x8B5CFF),
+                      new Swatch("Nordlicht Grün", 0x21FF9B),
+                      new Swatch("Eisblau", 0x4FC3FF),
+                      new Swatch("Sunset Pink", 0xFF5C9D),
+                      new Swatch("Gold", 0xFFC24B),
+                      new Swatch("Weiß", 0xF2F2FF),
+              };
+
+              public static int argb(int alpha, int rgb) { return (alpha & 0xFF) << 24 | (rgb & 0xFFFFFF); }
+
+              public static int lerp(float t, int a, int b) {
+                  t = Math.max(0f, Math.min(1f, t));
+                  int r = 0;
+                  for (int s = 0; s <= 24; s += 8) {
+                      int ca = (a >>> s) & 0xFF, cb = (b >>> s) & 0xFF;
+                      r |= (Math.round(ca + (cb - ca) * t) & 0xFF) << s;
+                  }
+                  return r;
+              }
+
+              private Palette() {}
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/gui/AuroraConfigScreen.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/gui/AuroraConfigScreen.java' <<'AURORA_EOF'
+          package dev.aurora.gui;
+
+          import dev.aurora.AuroraClient;
+          import dev.aurora.AuroraConfig;
+          import dev.aurora.KeySounds;
+          import dev.aurora.Palette;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.client.gui.screen.Screen;
+          import net.minecraft.client.gui.widget.ButtonWidget;
+          import net.minecraft.text.MutableText;
+          import net.minecraft.text.Text;
+          import net.minecraft.util.Formatting;
+
+          /** Das Aurora-Menü: alle Features per Klick an/aus. Öffnen mit Rechts-Shift oder dem Aurora-Button. */
+          public class AuroraConfigScreen extends Screen {
+              private static final String[] CORNERS = {"Oben links", "Oben rechts", "Unten links", "Unten rechts"};
+              private static final String[] SKY_STYLES = {"Klassik", "Deep Space"};
+              private final Screen parent;
+              private boolean packDirty;
+              private int panelX, panelY, panelW, panelH;
+
+              public AuroraConfigScreen(Screen parent) {
+                  super(Text.literal("Aurora Skies"));
+                  this.parent = parent;
+              }
+
+              private static MutableText onOff(String name, boolean v) {
+                  return Text.literal(name + ": ").append(v ? Text.literal("AN").formatted(Formatting.GREEN)
+                          : Text.literal("AUS").formatted(Formatting.RED));
+              }
+
+              private static MutableText value(String name, String v) {
+                  return Text.literal(name + ": ").append(Text.literal(v).formatted(Formatting.AQUA));
+              }
+
+              @Override
+              protected void init() {
+                  AuroraConfig c = AuroraConfig.INSTANCE;
+                  int bw = 150, bh = 20, step = 23;
+                  int lx = width / 2 - bw - 4, rx = width / 2 + 4;
+                  int top = Math.max(36, height / 2 - 112);
+                  panelW = bw * 2 + 32; panelX = width / 2 - panelW / 2;
+                  panelY = top - 30; panelH = step * 8 + 46;
+
+                  // --- Himmel & Pack
+                  int y = top;
+                  addDrawableChild(ButtonWidget.builder(onOff("Himmel & UI-Sounds", c.skyPack), b -> {
+                      c.skyPack = !c.skyPack; packDirty = true; b.setMessage(onOff("Himmel & UI-Sounds", c.skyPack));
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(ButtonWidget.builder(value("Himmel", SKY_STYLES[c.skyStyle]), b -> {
+                      c.skyStyle = (c.skyStyle + 1) % SKY_STYLES.length; packDirty = true;
+                      b.setMessage(value("Himmel", SKY_STYLES[c.skyStyle]));
+                  }).dimensions(rx, y, bw, bh).build());
+
+                  // --- Keystrokes
+                  y += step;
+                  addDrawableChild(ButtonWidget.builder(onOff("Keystrokes", c.keystrokes), b -> {
+                      c.keystrokes = !c.keystrokes; b.setMessage(onOff("Keystrokes", c.keystrokes));
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(ButtonWidget.builder(onOff("CPS anzeigen", c.showCps), b -> {
+                      c.showCps = !c.showCps; b.setMessage(onOff("CPS anzeigen", c.showCps));
+                  }).dimensions(rx, y, bw, bh).build());
+                  y += step;
+                  addDrawableChild(ButtonWidget.builder(value("Position", CORNERS[c.hudCorner]), b -> {
+                      c.hudCorner = (c.hudCorner + 1) % 4; b.setMessage(value("Position", CORNERS[c.hudCorner]));
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(new ValueSlider(rx, y, bw, bh, 0.5, 2.0, c.hudScale,
+                          v -> c.hudScale = (float) v, v -> value("HUD-Größe", Math.round(v * 100) + "%")));
+
+                  // --- Tastatur-Sounds
+                  y += step;
+                  addDrawableChild(ButtonWidget.builder(onOff("Tastatur-Sounds", c.keySounds), b -> {
+                      c.keySounds = !c.keySounds; b.setMessage(onOff("Tastatur-Sounds", c.keySounds));
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(ButtonWidget.builder(onOff("Auch im Spiel", c.keySoundsInGame), b -> {
+                      c.keySoundsInGame = !c.keySoundsInGame; b.setMessage(onOff("Auch im Spiel", c.keySoundsInGame));
+                  }).dimensions(rx, y, bw, bh).build());
+                  y += step;
+                  addDrawableChild(ButtonWidget.builder(value("Switch", KeySounds.PROFILE_NAMES[c.keyProfile]), b -> {
+                      c.keyProfile = (c.keyProfile + 1) % KeySounds.PROFILES.length;
+                      b.setMessage(value("Switch", KeySounds.PROFILE_NAMES[c.keyProfile]));
+                      KeySounds.preview();
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(new ValueSlider(rx, y, bw, bh, 0.0, 1.0, c.keyVolume,
+                          v -> c.keyVolume = (float) v, v -> value("Lautstärke", Math.round(v * 100) + "%")));
+
+                  // --- Cursor-Glow
+                  y += step;
+                  addDrawableChild(ButtonWidget.builder(onOff("Cursor-Glow", c.cursorGlow), b -> {
+                      c.cursorGlow = !c.cursorGlow; b.setMessage(onOff("Cursor-Glow", c.cursorGlow));
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(ButtonWidget.builder(onOff("Glow-Spur", c.cursorTrail), b -> {
+                      c.cursorTrail = !c.cursorTrail; b.setMessage(onOff("Glow-Spur", c.cursorTrail));
+                  }).dimensions(rx, y, bw, bh).build());
+                  y += step;
+                  addDrawableChild(ButtonWidget.builder(value("Farbe", Palette.COLORS[c.color].name()), b -> {
+                      c.color = (c.color + 1) % Palette.COLORS.length;
+                      b.setMessage(value("Farbe", Palette.COLORS[c.color].name()));
+                  }).dimensions(lx, y, bw, bh).build());
+                  addDrawableChild(new ValueSlider(rx, y, bw, bh, 20, 120, c.glowSize,
+                          v -> c.glowSize = (int) Math.round(v), v -> value("Glow-Größe", String.valueOf(Math.round(v)))));
+
+                  // --- Fertig
+                  y += step + 6;
+                  addDrawableChild(ButtonWidget.builder(Text.literal("Fertig"), b -> close())
+                          .dimensions(width / 2 - 100, y, 200, bh).build());
+              }
+
+              @Override
+              public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+                  super.renderBackground(ctx, mouseX, mouseY, delta);
+                  int accent = AuroraConfig.INSTANCE.rgb();
+                  ctx.fillGradient(panelX, panelY, panelX + panelW, panelY + panelH, 0xD0101020, 0xD0060610);
+                  ctx.fill(panelX, panelY, panelX + panelW, panelY + 2, Palette.argb(0xFF, accent));
+                  ctx.fill(panelX, panelY + panelH - 1, panelX + panelW, panelY + panelH, Palette.argb(0x80, accent));
+              }
+
+              @Override
+              public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+                  super.render(ctx, mouseX, mouseY, delta);
+                  int accent = AuroraConfig.INSTANCE.rgb();
+                  ctx.getMatrices().push();
+                  ctx.getMatrices().translate(width / 2f, panelY + 9, 0);
+                  ctx.getMatrices().scale(1.5f, 1.5f, 1f);
+                  ctx.drawCenteredTextWithShadow(textRenderer, Text.literal("✦ AURORA SKIES ✦"), 0, 0, Palette.argb(0xFF, accent));
+                  ctx.getMatrices().pop();
+                  ctx.drawCenteredTextWithShadow(textRenderer, Text.literal("Rechts-Shift öffnet dieses Menü").formatted(Formatting.GRAY),
+                          width / 2, panelY + panelH + 4, 0xFFFFFFFF);
+              }
+
+              @Override
+              public void close() {
+                  AuroraConfig.save();
+                  if (packDirty) AuroraClient.applyPacks();
+                  if (client != null) client.setScreen(parent);
+              }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/gui/ValueSlider.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/gui/ValueSlider.java' <<'AURORA_EOF'
+          package dev.aurora.gui;
+
+          import net.minecraft.client.gui.widget.SliderWidget;
+          import net.minecraft.text.Text;
+
+          import java.util.function.DoubleConsumer;
+          import java.util.function.DoubleFunction;
+
+          /** Schieberegler von min bis max mit eigener Beschriftung. */
+          public class ValueSlider extends SliderWidget {
+              private final double min, max;
+              private final DoubleConsumer setter;
+              private final DoubleFunction<Text> label;
+
+              public ValueSlider(int x, int y, int w, int h, double min, double max, double current,
+                                 DoubleConsumer setter, DoubleFunction<Text> label) {
+                  super(x, y, w, h, Text.empty(), (current - min) / (max - min));
+                  this.min = min; this.max = max; this.setter = setter; this.label = label;
+                  updateMessage();
+              }
+
+              private double real() { return min + (max - min) * value; }
+
+              @Override protected void updateMessage() { setMessage(label.apply(real())); }
+              @Override protected void applyValue() { setter.accept(real()); }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/mixin/KeyboardMixin.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/mixin/KeyboardMixin.java' <<'AURORA_EOF'
+          package dev.aurora.mixin;
+
+          import dev.aurora.KeySounds;
+          import net.minecraft.client.Keyboard;
+          import net.minecraft.client.MinecraftClient;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.injection.At;
+          import org.spongepowered.asm.mixin.injection.Inject;
+          import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+          @Mixin(Keyboard.class)
+          public class KeyboardMixin {
+              @Inject(method = "onKey", at = @At("HEAD"))
+              private void aurora$onKey(long window, int key, int scancode, int action, int modifiers, CallbackInfo ci) {
+                  if (window != MinecraftClient.getInstance().getWindow().getHandle()) return;
+                  KeySounds.onKey(key, action);
+              }
+          }
+          AURORA_EOF
+          mkdir -p "$(dirname 'aurora-mod/src/main/java/dev/aurora/mixin/MouseMixin.java')"
+          cat > 'aurora-mod/src/main/java/dev/aurora/mixin/MouseMixin.java' <<'AURORA_EOF'
+          package dev.aurora.mixin;
+
+          import dev.aurora.CursorGlow;
+          import dev.aurora.KeystrokesHud;
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.Mouse;
+          import org.lwjgl.glfw.GLFW;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.injection.At;
+          import org.spongepowered.asm.mixin.injection.Inject;
+          import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+          @Mixin(Mouse.class)
+          public class MouseMixin {
+              @Inject(method = "onMouseButton", at = @At("HEAD"))
+              private void aurora$onMouseButton(long window, int button, int action, int mods, CallbackInfo ci) {
+                  if (window != MinecraftClient.getInstance().getWindow().getHandle() || action != GLFW.GLFW_PRESS) return;
+                  KeystrokesHud.onClick(button);
+                  CursorGlow.onClick();
+              }
+          }
+          AURORA_EOF
+
+      - name: Generatoren fuer Himmel und Sounds anlegen
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$(dirname 'gen/build.py')"
+          cat > 'gen/build.py' <<'AURORA_EOF'
+          """Generator for the 'Aurora Skies' Minecraft resource pack.
+          All textures and sounds are procedurally generated (original content)."""
+          import json, os, shutil, subprocess, wave, zipfile, zlib
+          import numpy as np
+          from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+          HERE = os.path.dirname(os.path.abspath(__file__))
+          OUT = os.environ.get("AURORA_OUT", "/home/claude/out")
+          PACK = os.path.join(OUT, "AuroraSkies")
+          NS = "aurora"
+          rng = np.random.default_rng(1337)
+
+          def mk(p):
+              os.makedirs(os.path.dirname(p), exist_ok=True); return p
+
+          # ---------------------------------------------------------------- noise
+          _perm = rng.permutation(4096)
+          def hash3(ix, iy, iz):
+              h = (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)
+              return (_perm[np.abs(h) % 4096] / 4095.0)
+
+          def vnoise3(p):
+              x, y, z = p[..., 0], p[..., 1], p[..., 2]
+              xi, yi, zi = np.floor(x).astype(np.int64), np.floor(y).astype(np.int64), np.floor(z).astype(np.int64)
+              xf, yf, zf = x - xi, y - yi, z - zi
+              s = lambda t: t * t * (3 - 2 * t)
+              u, v, w = s(xf), s(yf), s(zf)
+              out = 0
+              for dx in (0, 1):
+                  for dy in (0, 1):
+                      for dz in (0, 1):
+                          wgt = (u if dx else 1 - u) * (v if dy else 1 - v) * (w if dz else 1 - w)
+                          out = out + wgt * hash3(xi + dx, yi + dy, zi + dz)
+              return out
+
+          def fbm3(p, octaves=5):
+              a, f, tot, norm = 1.0, 1.0, 0, 0
+              for _ in range(octaves):
+                  tot = tot + a * vnoise3(p * f); norm += a; a *= .5; f *= 2.03
+              return tot / norm
+
+          # ---------------------------------------------------------------- cube faces
+          FACES = {  # name: (forward, right, up)
+              "north": ((0, 0, -1), (1, 0, 0), (0, 1, 0)),
+              "east":  ((1, 0, 0), (0, 0, 1), (0, 1, 0)),
+              "south": ((0, 0, 1), (-1, 0, 0), (0, 1, 0)),
+              "west":  ((-1, 0, 0), (0, 0, -1), (0, 1, 0)),
+              "top":   ((0, 1, 0), (1, 0, 0), (0, 0, 1)),
+              "bottom": ((0, -1, 0), (1, 0, 0), (0, 0, -1)),
+          }
+
+          def face_dirs(face, n):
+              f, r, u = (np.array(v, float) for v in FACES[face])
+              t = (np.arange(n) + .5) / n * 2 - 1
+              uu, vv = np.meshgrid(t, -t)
+              d = f + uu[..., None] * r + vv[..., None] * u
+              return d / np.linalg.norm(d, axis=-1, keepdims=True)
+
+          def lerp(a, b, t): return a + (b - a) * t
+          def C(*h): return np.array([int(h[0][i:i+2], 16) / 255 for i in (1, 3, 5)])
+
+          def gradient(el, stops):
+              """stops: list of (elevation, color) sorted ascending."""
+              out = np.zeros(el.shape + (3,))
+              els = [s[0] for s in stops]
+              for ch in range(3):
+                  out[..., ch] = np.interp(el, els, [s[1][ch] for s in stops])
+              return out
+
+          def stars(d, density=0.9985, scale=180):
+              p = d * scale
+              cell = np.floor(p)
+              h = hash3(cell[..., 0].astype(np.int64), cell[..., 1].astype(np.int64), cell[..., 2].astype(np.int64))
+              frac = p - cell - .5
+              dist = np.linalg.norm(frac, axis=-1)
+              bright = np.clip((h - density) / (1 - density), 0, 1)
+              return bright * np.exp(-(dist / .18) ** 2) * 1.6
+
+          # ---------------------------------------------------------------- sky themes
+          def sky_day(d):
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              col = gradient(el, [(-90, C("#5d7fb8")), (-5, C("#9cc3ec")), (0, C("#d9ecff")), (8, C("#a9d2fa")),
+                                  (35, C("#5fa3ec")), (90, C("#2f6fd0"))])
+              up = np.clip(d[..., 1], 0.02, 1)
+              proj = np.stack([d[..., 0] / up, np.zeros_like(up), d[..., 2] / up], -1) * 1.6
+              cl = fbm3(proj + np.array([0, 3.1, 0]), 6)
+              cmask = np.clip((cl - .52) * 4.0, 0, 1) * np.clip((el - 2) / 12, 0, 1)
+              shade = np.clip(fbm3(proj * 2.1 + 7, 3), 0, 1)
+              ccol = lerp(C("#ffffff"), C("#c7d5ea"), shade[..., None] * .8)
+              col = lerp(col, ccol, cmask[..., None] * .92)
+              return col
+
+          def sky_sunset(d):
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              az = np.arctan2(d[..., 0], -d[..., 2])  # 0 = north
+              west = np.clip(np.cos(az + np.pi / 2), 0, 1)  # glow toward -x (west)
+              col = gradient(el, [(-90, C("#2a1838")), (-3, C("#ff8a4c")), (0, C("#ffc46b")), (6, C("#ff7a59")),
+                                  (18, C("#d24f7c")), (40, C("#6a3b8f")), (90, C("#22225a"))])
+              glow = west[..., None] ** 3 * np.exp(-np.clip(el, 0, None) / 14)[..., None]
+              col = col + glow * C("#ffb347") * .6
+              up = np.clip(d[..., 1], 0.03, 1)
+              proj = np.stack([d[..., 0] / up, np.zeros_like(up), d[..., 2] / up], -1) * 1.1
+              cl = fbm3(proj * np.array([1, 1, 3.5]) + 11, 6)
+              cmask = np.clip((cl - .55) * 3.5, 0, 1) * np.clip((el - 1) / 10, 0, 1) * np.clip(1 - el / 70, 0, 1)
+              ccol = lerp(C("#ff9e7a"), C("#5b2c6f"), np.clip(el / 40, 0, 1)[..., None])
+              ccol = ccol + west[..., None] * C("#ffcf80") * .5
+              col = lerp(col, ccol, cmask[..., None] * .85)
+              col = col + stars(d, .9993)[..., None] * np.clip((el - 30) / 40, 0, 1)[..., None] * .6
+              return col
+
+          def sky_night(d):
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              col = gradient(el, [(-90, C("#03040a")), (0, C("#101a33")), (10, C("#0a1226")), (90, C("#04060f"))])
+              # milky way band
+              n = np.array([0.35, 0.55, 0.76]); n /= np.linalg.norm(n)
+              band = np.exp(-(np.abs((d * n).sum(-1)) / .16) ** 2)
+              mw = fbm3(d * 6 + 5, 6)
+              col = col + band[..., None] * (mw ** 2)[..., None] * C("#8f8fc9") * .55
+              col = col + stars(d, .997, 220)[..., None] * C("#ffffff")
+              col = col + stars(d, .9992, 90)[..., None] * C("#cfe0ff") * 1.2
+              col = col + band[..., None] * stars(d, .985, 400)[..., None] * .5
+              # aurora curtains
+              az = np.arctan2(d[..., 0], -d[..., 2])
+              wav = np.sin(az * 3 + 1.3 * np.sin(az * 7)) * 6 + fbm3(d * 3, 3) * 10
+              center = 32 + wav
+              height = np.clip(1 - np.abs(el - center) / 18, 0, 1) ** 1.5
+              rays = fbm3(np.stack([az * 40, np.zeros_like(az), np.zeros_like(az)], -1), 4)
+              rays = 0.45 + 0.9 * rays ** 2
+              hue_t = np.clip((el - center + 18) / 36, 0, 1)[..., None]
+              acol = lerp(C("#21ff9b"), C("#b04dff"), hue_t ** 1.4)
+              north = np.clip(-d[..., 2] * .6 + .7, 0, 1)
+              col = col + acol * (height * rays * north)[..., None] * .75
+              return col
+
+          def sky_end(d):
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              col = gradient(el, [(-90, C("#07020f")), (0, C("#1c0b33")), (90, C("#0a0418"))])
+              neb = fbm3(d * 2.5 + 21, 6)
+              neb2 = fbm3(d * 4 + 3, 5)
+              col = col + (np.clip(neb - .45, 0, 1) * 2.2)[..., None] * C("#9b3dff") * .7
+              col = col + (np.clip(neb2 - .55, 0, 1) * 2.5)[..., None] * C("#2bd6c4") * .45
+              col = col + stars(d, .996, 200)[..., None] * C("#f1e6ff")
+              return col
+
+          THEMES = {"day": sky_day, "sunset": sky_sunset, "night": sky_night, "end": sky_end}
+
+          def to_img(col, alpha=None):
+              col = np.clip(col, 0, 1)
+              arr = (col * 255 + rng.random(col.shape) * .9).astype(np.uint8)  # dither vs banding
+              if alpha is not None:
+                  a = (np.clip(alpha, 0, 1) * 255).astype(np.uint8)
+                  return Image.fromarray(np.dstack([arr, a]), "RGBA")
+              return Image.fromarray(arr, "RGB")
+
+          def render_faces(fn, n):
+              return {f: to_img(fn(face_dirs(f, n))) for f in FACES}
+
+          # ---------------------------------------------------------------- landscape for panorama
+          def with_landscape(fn, d):
+              col = fn(d)
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              az = np.arctan2(d[..., 0], -d[..., 2])
+              ring = np.stack([np.cos(az), np.zeros_like(az), np.sin(az)], -1)
+              far = 2 + fbm3(ring * 2.2 + 40, 5) * 12
+              near = -1 + fbm3(ring * 5 + 90, 5) * 8
+              tex = fbm3(d * 30, 3)
+              farcol = lerp(C("#2d3f5c"), C("#1e2a40"), tex[..., None])
+              nearcol = lerp(C("#11331f"), C("#0b2216"), tex[..., None])
+              m1 = np.clip((far - el) * 2, 0, 1)[..., None]
+              col = lerp(col, lerp(col, farcol, .85), m1)
+              m2 = np.clip((near - el) * 2, 0, 1)[..., None]
+              col = lerp(col, nearcol, m2)
+              return col
+
+          # ---------------------------------------------------------------- write helpers
+          def save_json(path, obj): json.dump(obj, open(mk(path), "w"), indent=2)
+
+          def build_textures():
+              print("skies...")
+              N = 512
+              sky_meta = {
+                  #  name   fade-in start,end   fade-out start,end  (ticks)  blend
+                  "day":    (23500, 0, 11500, 12500),
+                  "sunset": (11000, 12000, 13500, 14000),
+                  "night":  (13000, 14000, 22500, 23500),
+              }
+              order = ["bottom", "top", "south", "west", "north", "east"]  # OptiFine 3x2 layout
+              for i, name in enumerate(["day", "sunset", "night", "end"], 1):
+                  faces = render_faces(THEMES[name], N)
+                  # FabricSkyboxes (per-face textures)
+                  for f, im in faces.items():
+                      im.save(mk(f"{PACK}/assets/{NS}/textures/sky/{name}/{f}.png"))
+                  # OptiFine combined cubemap
+                  sheet = Image.new("RGB", (N * 3, N * 2))
+                  for k, f in enumerate(order):
+                      sheet.paste(faces[f], ((k % 3) * N, (k // 3) * N))
+                  world = "world1" if name == "end" else "world0"
+                  idx = 1 if name == "end" else i
+                  sheet.save(mk(f"{PACK}/assets/minecraft/optifine/sky/{world}/sky{idx}.png"))
+                  if name == "end":
+                      props = {"source": f"./sky{idx}.png", "blend": "replace", "rotate": "true", "speed": "0.2", "axis": "0.0 1.0 0.0"}
+                      fsb_fade = {"alwaysOn": True}
+                      worlds = ["minecraft:the_end"]
+                  else:
+                      fi0, fi1, fo0, fo1 = sky_meta[name]
+                      hh = lambda t: f"{int((t / 1000 + 6) % 24):02d}:{int((t % 1000) * .06):02d}"
+                      props = {"source": f"./sky{idx}.png", "startFadeIn": hh(fi0), "endFadeIn": hh(fi1),
+                               "startFadeOut": hh(fo0), "endFadeOut": hh(fo1), "blend": "alpha",
+                               "rotate": "true" if name == "night" else "false", "speed": "1.0", "axis": "0.0 0.0 1.0",
+                               "weather": "clear"}
+                      fsb_fade = {"startFadeIn": fi0, "endFadeIn": fi1, "startFadeOut": fo0, "endFadeOut": fo1}
+                      worlds = ["minecraft:overworld"]
+                  with open(mk(f"{PACK}/assets/minecraft/optifine/sky/{world}/sky{idx}.properties"), "w") as fh:
+                      fh.write(f"# Aurora Skies - {name}\n" + "".join(f"{k}={v}\n" for k, v in props.items()))
+                  save_json(f"{PACK}/assets/fabricskyboxes/sky/{NS}_{i}_{name}.json", {
+                      "schemaVersion": 2, "type": "square-textured",
+                      "conditions": {"worlds": worlds},
+                      "properties": {"priority": i, "fade": fsb_fade,
+                                     "rotation": {"static": [0, 0, 0], "axis": [0, 0, 90 if name == "night" else 0],
+                                                  "rotationSpeedY": 0.2 if name in ("night", "end") else 0},
+                                     "changeFog": False, "sunSkyTint": False},
+                      "textures": {f: f"{NS}:textures/sky/{name}/{f}.png" for f in FACES},
+                      "blend": {"type": "alpha"},
+                      "decorations": {"showSun": name != "end", "showMoon": name != "end", "showStars": False},
+                  })
+                  # preview (wide strip)
+                  W, H = 1920, 1080
+                  x = (np.arange(W) + .5) / W * 2 - 1
+                  y = (np.arange(H) + .5) / H * 2 - 1
+                  xx, yy = np.meshgrid(x * 1.6, -y * .9 + .35)
+                  dd = np.stack([xx, yy, -np.ones_like(xx)], -1)
+                  dd /= np.linalg.norm(dd, axis=-1, keepdims=True)
+                  to_img(with_landscape(THEMES[name], dd)).save(mk(f"{OUT}/previews/{i}_{name}.png"))
+
+              print("panorama...")
+              for k, f in enumerate(["north", "east", "south", "west", "top", "bottom"]):
+                  to_img(with_landscape(sky_sunset, face_dirs(f, 1024))).save(
+                      mk(f"{PACK}/assets/minecraft/textures/gui/title/background/panorama_{k}.png"))
+
+              print("sun/moon/clouds/icon...")
+              S = 128
+              yy, xx = np.mgrid[0:S, 0:S]; r = np.hypot(xx - S / 2 + .5, yy - S / 2 + .5) / (S / 2)
+              core = np.clip(1 - r / .42, 0, 1) ** .4
+              halo = np.exp(-(r / .55) ** 2) * .9
+              sun = np.zeros((S, S, 4)); sun[..., :3] = C("#fff3c4"); sun[..., 3] = np.clip(core + halo * .6, 0, 1)
+              sun[..., 0:3] = lerp(C("#ffb347")[None, None], C("#fffbe8")[None, None], core[..., None])
+              Image.fromarray((sun * 255).astype(np.uint8), "RGBA").save(mk(f"{PACK}/assets/minecraft/textures/environment/sun.png"))
+
+              moon = Image.new("RGBA", (S * 4, S * 2))
+              base_r = .5
+              mtex = fbm3(np.stack([xx / 18, yy / 18, np.zeros_like(xx) + 3.3], -1), 5)
+              for ph in range(8):
+                  disc = r < base_r * 1.0 / .5 * .5 / 1  # radius .5 of half -> quarter size
+                  disc = np.clip((0.5 - r) * 40, 0, 1)
+                  shade = lerp(C("#9aa3b8"), C("#eef1ff"), mtex[..., None])
+                  frac = [1, .75, .5, .25, 0, -.25, -.5, -.75][ph]  # full -> new -> full
+                  nx = (xx - S / 2 + .5) / (S * .25)
+                  lit = np.ones_like(nx)
+                  k = np.cos(np.pi * (ph / 8.0) * 2)  # terminator position
+                  side = 1 if ph < 4 else -1
+                  ny = (yy - S / 2 + .5) / (S * .25)
+                  edge = np.sqrt(np.clip(1 - ny ** 2, 0, 1))
+                  term = edge * k
+                  lit = np.clip((side * nx - (-term)) * 6, 0, 1) if ph != 0 else lit
+                  if ph == 4: lit = np.zeros_like(nx) + .04
+                  a = disc * np.clip(lit + .06, 0, 1)
+                  img = np.dstack([shade, a])
+                  glow = np.exp(-((r - .5).clip(0)) / .06) * (r >= .5) * .25 * (ph != 4)
+                  img[..., 3] = np.clip(img[..., 3] + glow, 0, 1)
+                  moon.paste(Image.fromarray((img * 255).astype(np.uint8), "RGBA"), ((ph % 4) * S, (ph // 4) * S))
+              moon.save(mk(f"{PACK}/assets/minecraft/textures/environment/moon_phases.png"))
+
+              cl = fbm3(np.stack([*np.mgrid[0:256, 0:256] / 22.0, np.zeros((256, 256)) + 9], -1), 4)
+              cm = (cl > .55).astype(np.uint8) * 255
+              cimg = np.dstack([np.full((256, 256, 3), 255, np.uint8), cm])
+              Image.fromarray(cimg, "RGBA").save(mk(f"{PACK}/assets/minecraft/textures/environment/clouds.png"))
+
+              icon = to_img(sky_night(face_dirs("north", 256) * np.array([1, 1, 1]) + np.array([0, .55, 0]) / 1))
+              icon = to_img(with_landscape(sky_night, (lambda d: d / np.linalg.norm(d, axis=-1, keepdims=True))(
+                  face_dirs("north", 256) + np.array([0, .45, 0]))))
+              icon.save(f"{PACK}/pack.png"); icon.resize((512, 512), Image.LANCZOS).save(mk(f"{OUT}/previews/icon.png"))
+
+          # ---------------------------------------------------------------- audio
+          SR = 44100
+          def env(n, a=.002, d=.2):
+              t = np.arange(n) / SR
+              return np.minimum(t / a, 1) * np.exp(-t / d)
+
+          def tone(freq, dur, a=.002, d=.2, harm=((1, 1), (2, .25), (3, .08)), det=0):
+              n = int(dur * SR); t = np.arange(n) / SR
+              s = sum(amp * np.sin(2 * np.pi * freq * h * t * (1 + det)) for h, amp in harm)
+              return s * env(n, a, d)
+
+          def reverb(x, wet=.25, length=1.2):
+              n = int(length * SR)
+              ir = rng.standard_normal(n) * np.exp(-np.arange(n) / SR / (length / 5))
+              ir[0] = 0
+              y = np.convolve(x, ir)[: len(x) + n] if len(x) < 20000 else __import__("scipy.signal", fromlist=["fftconvolve"]).fftconvolve(x, ir)
+              y = y / (np.abs(y).max() + 1e-9) * np.abs(x).max()
+              out = np.zeros(len(y)); out[:len(x)] += x * (1 - wet)
+              return out + y * wet
+
+          def place(buf, sig, at):
+              i = int(at * SR); buf[i:i + len(sig)] += sig[: len(buf) - i]
+
+          def note(n): return 440 * 2 ** ((n - 69) / 12)
+
+          def write_ogg(sig, path, stereo=None):
+              path = mk(path)
+              sig = sig / (np.abs(sig).max() + 1e-9) * .89
+              wav = path[:-4] + ".wav"
+              data = sig if stereo is None else np.stack([sig, stereo / (np.abs(stereo).max() + 1e-9) * .89], -1)
+              with wave.open(wav, "w") as w:
+                  w.setnchannels(1 if stereo is None else 2); w.setsampwidth(2); w.setframerate(SR)
+                  w.writeframes((data * 32767).astype(np.int16).tobytes())
+              subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "6", path], check=True)
+              os.remove(wav)
+
+          def build_sounds():
+              print("sounds...")
+              base = f"{PACK}/assets/{NS}/sounds"
+              # click: soft glassy tick
+              n = int(.09 * SR)
+              click = tone(2093, .09, .0005, .018, ((1, 1), (1.5, .35), (2.76, .2)))
+              click[:200] += rng.standard_normal(200) * np.linspace(.5, 0, 200)
+              write_ogg(reverb(click, .12, .25), f"{base}/ui/click.ogg")
+              # alt click variant
+              click2 = tone(1760, .09, .0005, .02, ((1, 1), (1.5, .3), (2.76, .2)))
+              write_ogg(reverb(click2, .12, .25), f"{base}/ui/click2.ogg")
+              # toast in / out
+              b = np.zeros(int(.9 * SR)); place(b, tone(note(88), .6, .003, .25), 0); place(b, tone(note(95), .6, .003, .3), .09)
+              write_ogg(reverb(b, .3, 1.0), f"{base}/ui/toast_in.ogg")
+              b = np.zeros(int(.9 * SR)); place(b, tone(note(95), .6, .003, .22), 0); place(b, tone(note(88), .6, .003, .28), .09)
+              write_ogg(reverb(b, .3, 1.0), f"{base}/ui/toast_out.ogg")
+              # challenge complete: shimmering arpeggio
+              b = np.zeros(int(3.2 * SR))
+              for k, m in enumerate([72, 76, 79, 84, 88, 91, 96]):
+                  place(b, tone(note(m), 1.8, .004, .7, ((1, 1), (2, .3), (3, .1), (4, .05))), k * .08)
+                  place(b, tone(note(m), 1.8, .004, .7, ((1, .4),), det=.004), k * .08 + .01)
+              write_ogg(reverb(b, .4, 2.0), f"{base}/ui/challenge.ogg")
+              # level up
+              b = np.zeros(int(1.6 * SR))
+              for k, m in enumerate([79, 83, 86, 91]):
+                  place(b, tone(note(m), .9, .003, .35), k * .07)
+              write_ogg(reverb(b, .3, 1.2), f"{base}/ui/levelup.ogg")
+              # xp orb pickup: tiny sparkle
+              write_ogg(reverb(tone(note(100), .25, .001, .06, ((1, 1), (2, .2))), .2, .4), f"{base}/ui/xp.ogg")
+
+              print("music...")
+              dur = 96
+              n = int(dur * SR); t = np.arange(n) / SR
+              L = np.zeros(n); R = np.zeros(n)
+              prog = [[57, 64, 69, 72, 76], [53, 60, 65, 69, 72], [48, 55, 60, 64, 67], [55, 62, 67, 71, 74]]  # Am F C G
+              seg = dur / 8
+              for s in range(8):
+                  chord = prog[s % 4]; st = s * seg
+                  m = int((seg + 4) * SR); tt = np.arange(m) / SR
+                  envp = np.clip(tt / 3.5, 0, 1) * np.clip((seg + 4 - tt) / 4, 0, 1)
+                  for j, nn in enumerate(chord):
+                      f = note(nn)
+                      pad = sum(np.sin(2 * np.pi * f * (1 + dt) * tt + j) for dt in (-.003, 0, .003)) / 3
+                      pad += .2 * np.sin(2 * np.pi * f * 2 * tt)
+                      pan = (j / (len(chord) - 1))
+                      i0 = int(st * SR); i1 = min(i0 + m, n)
+                      L[i0:i1] += (pad * envp * (1 - pan * .6))[: i1 - i0] * .18
+                      R[i0:i1] += (pad * envp * (.4 + pan * .6))[: i1 - i0] * .18
+                  # sparse bell melody
+                  mel_rng = np.random.default_rng(s)
+                  for k in range(4):
+                      nn = chord[mel_rng.integers(2, 5)] + 12
+                      at = st + .8 + k * seg / 4 + mel_rng.random() * .4
+                      bell = tone(note(nn), 3.0, .004, .9, ((1, 1), (2.01, .3), (3.0, .1))) * .22
+                      i0 = int(at * SR); i1 = min(i0 + len(bell), n)
+                      L[i0:i1] += bell[: i1 - i0] * (.7 if k % 2 else 1); R[i0:i1] += bell[: i1 - i0] * (1 if k % 2 else .7)
+              fade = np.clip(t / 4, 0, 1) * np.clip((dur - t) / 6, 0, 1)
+              from scipy.signal import fftconvolve
+              irn = int(3 * SR); irL = rng.standard_normal(irn) * np.exp(-np.arange(irn) / SR / .8); irR = rng.standard_normal(irn) * np.exp(-np.arange(irn) / SR / .8)
+              wl = fftconvolve(L, irL)[:n]; wr = fftconvolve(R, irR)[:n]
+              wl *= np.abs(L).max() / np.abs(wl).max(); wr *= np.abs(R).max() / np.abs(wr).max()
+              write_ogg((L * .65 + wl * .45) * fade, f"{base}/music/aurora_menu.ogg", (R * .65 + wr * .45) * fade)
+
+              s = lambda name, **kw: {"name": f"{NS}:{name}", **kw}
+              save_json(f"{PACK}/assets/minecraft/sounds.json", {
+                  "ui.button.click": {"replace": True, "sounds": [s("ui/click"), s("ui/click2", weight=1)]},
+                  "ui.toast.in": {"replace": True, "sounds": [s("ui/toast_in")]},
+                  "ui.toast.out": {"replace": True, "sounds": [s("ui/toast_out")]},
+                  "ui.toast.challenge_complete": {"replace": True, "sounds": [s("ui/challenge")]},
+                  "entity.player.levelup": {"replace": True, "sounds": [s("ui/levelup")]},
+                  "entity.experience_orb.pickup": {"replace": True, "sounds": [s("ui/xp", volume=0.6)]},
+                  "music.menu": {"replace": True, "sounds": [s("music/aurora_menu", stream=True)]},
+              })
+
+          # ---------------------------------------------------------------- meta / texts
+          SPLASHES = """Aurora Skies!
+          Jetzt mit Nordlichtern!
+          Schau mal nach oben!
+          Der Himmel ist kein Limit.
+          Golden Hour, jeden Tag.
+          Sternenklar!
+          Handgemacht mit Algorithmen.
+          Hör mal auf die Buttons!
+          Klick. Klick. Klick.
+          Sonnenuntergang inklusive.
+          Milchstraße in 512px!
+          Better Skies, Better Vibes.
+          Look up!
+          Now with northern lights!
+          Every sunset is unique.
+          Click sounds you can feel.
+          End sky, but prettier.
+          Ambient vibes only.
+          Clear skies ahead.
+          Made for screenshots.
+          """
+
+          def build_meta():
+              save_json(f"{PACK}/pack.mcmeta", {"pack": {
+                  "pack_format": 46,
+                  "supported_formats": {"min_inclusive": 34, "max_inclusive": 120},
+                  "min_format": 34, "max_format": 120,
+                  "description": [{"text": "Aurora Skies ", "color": "aqua", "bold": True},
+                                  {"text": "v1.0\n", "color": "gray"},
+                                  {"text": "Custom Skies • UI Sounds • Menu Music", "color": "light_purple"}]}})
+              with open(mk(f"{PACK}/assets/minecraft/texts/splashes.txt"), "w") as fh: fh.write(SPLASHES)
+              shutil.copy(os.path.join(HERE, "LIZENZ.txt"), f"{PACK}/LIZENZ.txt")
+              shutil.copy(os.path.join(HERE, "LIESMICH.txt"), f"{PACK}/LIESMICH.txt")
+
+          def zipit():
+              zp = f"{OUT}/AuroraSkies_v1.0.zip"
+              with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
+                  for root, _, files in os.walk(PACK):
+                      for f in files:
+                          full = os.path.join(root, f); z.write(full, os.path.relpath(full, PACK))
+              print("zip", os.path.getsize(zp) / 1e6, "MB")
+
+          if __name__ == "__main__":
+              shutil.rmtree(OUT, ignore_errors=True)
+              build_textures(); build_sounds(); build_meta(); zipit()
+
+          # ================================================================ MOD ASSETS
+          from scipy.signal import butter, sosfilt
+          MODRES = os.environ.get("AURORA_MODRES", "/home/claude/mod/src/main/resources")
+
+          PROFILES = {
+              #           body freqs (Hz)        body decay  noise lp  tick amp  tick hz
+              "creamy": ([170, 410, 880],        .020,       1300,     .06,      2600),
+              "thocky": ([115, 260, 560],        .030,       900,      .03,      2000),
+              "clacky": ([900, 1900, 3400],      .012,       5000,     .45,      4200),
+          }
+
+          def lp(x, hz): return sosfilt(butter(4, hz, "low", fs=SR, output="sos"), x)
+
+          def keyhit(profile, kind, seed):
+              r = np.random.default_rng(seed)
+              freqs, dec, lpf, tick_amp, tick_hz = PROFILES[profile]
+              dur = .16 if kind == "big" else .1
+              n = int(dur * SR); t = np.arange(n) / SR
+              var = 1 + r.uniform(-.06, .06)
+              if kind == "release":
+                  var *= 1.35; dec *= .6
+              body = sum(np.sin(2 * np.pi * f * var * t + r.random()) * np.exp(-t / (dec * (1.6 if i == 0 else 1 / (i + .5))))
+                         / (i + 1) for i, f in enumerate(freqs))
+              noise = lp(r.standard_normal(n), lpf * var) * np.exp(-t / (dec * .5))
+              tick = np.sin(2 * np.pi * tick_hz * var * t) * np.exp(-t / .002) * tick_amp
+              s = body * .9 + noise * .5 + tick
+              if kind == "big":  # stabiliser rattle on spacebar / enter
+                  rat = np.zeros(n); i0 = int(.011 * SR)
+                  rat[i0:] = (body[: n - i0] * .35 + lp(r.standard_normal(n - i0), lpf * .8) * np.exp(-t[: n - i0] / .02) * .3)
+                  s = s * 1.1 + rat
+                  s = lp(s, lpf * 1.4)
+              s *= np.minimum(t / .0004, 1)
+              return s * (.45 if kind == "release" else 1)
+
+          def build_mod_assets():
+              print("mod assets...")
+              sj = {}
+              for prof in PROFILES:
+                  for kind, count in (("press", 5), ("release", 3), ("big", 2)):
+                      names = []
+                      for k in range(count):
+                          rel = f"key/{prof}/{kind}{k}"
+                          write_ogg(keyhit(prof, kind, zlib.crc32(f"{prof}/{kind}/{k}".encode())), f"{MODRES}/assets/aurora/sounds/{rel}.ogg")
+                          names.append(f"aurora:{rel}")
+                      sj[f"key.{prof}.{kind}"] = {"sounds": names, "subtitle": "subtitles.aurora.key"}
+              for kind in ("press", "release", "big"):  # Profil "Eigene": Fallback auf Creamy, per Resource-Pack ersetzbar
+                  sj[f"key.custom.{kind}"] = {"sounds": sj[f"key.creamy.{kind}"]["sounds"], "subtitle": "subtitles.aurora.key"}
+              save_json(f"{MODRES}/assets/aurora/sounds.json", sj)
+              # cursor glow texture (soft radial, white -> tinted at runtime)
+              S = 128
+              yy, xx = np.mgrid[0:S, 0:S]; r = np.hypot(xx - S / 2 + .5, yy - S / 2 + .5) / (S / 2)
+              a = np.clip(np.exp(-(r / .45) ** 2) * 1.05 - .02, 0, 1) * (r < 1)
+              Image.fromarray(np.dstack([np.full((S, S, 3), 255, np.uint8), (a * 255).astype(np.uint8)]), "RGBA").save(
+                  mk(f"{MODRES}/assets/aurora/textures/gui/glow.png"))
+              shutil.copy(f"{PACK}/pack.png", mk(f"{MODRES}/assets/aurora/icon.png"))
+              dst = f"{MODRES}/resourcepacks/aurora_skies"
+              shutil.rmtree(dst, ignore_errors=True)
+              shutil.copytree(PACK, dst, ignore=shutil.ignore_patterns("*.txt"))
+              shutil.copy(f"{PACK}/assets/minecraft/texts/splashes.txt", f"{dst}/assets/minecraft/texts/splashes.txt")
+
+          if __name__ == "__main__":
+              build_mod_assets()
+          AURORA_EOF
+          mkdir -p "$(dirname 'gen/deepspace.py')"
+          cat > 'gen/deepspace.py' <<'AURORA_EOF'
+          """Deep Space sky: original procedural black hole + ringed gas giant."""
+          import os, shutil, json
+          import numpy as np
+          from PIL import Image
+          import build as B
+          from build import fbm3, stars, C, lerp, gradient, face_dirs, to_img, mk
+
+          def norm(v): return v / np.linalg.norm(v)
+
+          BH = norm(np.array([0.15, np.sin(np.radians(28)), -np.cos(np.radians(28))]))
+          PL = norm(np.array([-np.cos(np.radians(4)) * np.sin(np.radians(42)), np.sin(np.radians(4)), -np.cos(np.radians(4)) * np.cos(np.radians(42))]))
+
+          def frame(center, roll_deg):
+              up = np.array([0, 1, 0.])
+              e1 = norm(np.cross(up, -center)) * -1  # horizontal "right" in view
+              e1 = norm(np.cross(center, up)) if np.linalg.norm(np.cross(center, up)) > 1e-6 else np.array([1, 0, 0.])
+              e2 = np.cross(e1, center)
+              r = np.radians(roll_deg)
+              return e1 * np.cos(r) + e2 * np.sin(r), -e1 * np.sin(r) + e2 * np.cos(r)
+
+          def gnomonic(d, c, e1, e2):
+              cz = (d * c).sum(-1)
+              safe = np.where(cz > 0.05, cz, 0.05)
+              return (d * e1).sum(-1) / safe, (d * e2).sum(-1) / safe, cz
+
+          def sky_deepspace(d):
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              col = gradient(el, [(-90, C("#050508")), (0, C("#1a1c24")), (15, C("#101219")), (90, C("#06070b"))])
+              # dust / faint nebula
+              neb = fbm3(d * 3 + 50, 6)
+              col = col + np.clip(neb - .5, 0, 1)[..., None] * 2 * C("#3a3550") * .5
+              col = col + stars(d, .9965, 240)[..., None] * C("#ffffff") * .9
+              col = col + stars(d, .9993, 110)[..., None] * C("#dfe8ff") * 1.3
+
+              # ---------- black hole
+              e1, e2 = frame(BH, -9)
+              px, py, cz = gnomonic(d, BH, e1, e2)
+              front = cz > 0
+              r = np.hypot(px, py)
+              R0 = 0.085
+              ang = np.arccos(np.clip(cz, -1, 1))
+              col = col + (np.exp(-ang / .55) * .22)[..., None] * C("#aeb4c4")                        # big haze
+              halo = np.exp(-np.clip(r - R0, 0, None) / (R0 * 2.8)) * front
+              col = col + (halo * .3)[..., None] * C("#e8eeff")
+              ring = np.exp(-((r - R0 * 1.06) / (R0 * .035)) ** 2) * front
+              col = col + (ring * 1.2)[..., None] * C("#ffffff")
+              # lensed far side of the disk (arc around the shadow)
+              lens = np.exp(-((r - R0 * 1.3) / (R0 * .12)) ** 2) * front
+              streak_l = .6 + .8 * fbm3(np.stack([np.arctan2(py, px) * 30, r * 50, np.zeros_like(r)], -1), 4)
+              col = col + (lens * streak_l * .7)[..., None] * C("#ffd6a0")
+              # shadow
+              shadow = np.clip((R0 - r) / (R0 * .04), 0, 1) * front
+              col = col * (1 - shadow[..., None])
+              # front disk (thin band crossing in front)
+              thick = R0 * (.2 + .07 * np.abs(px) / R0)
+              band = np.exp(-(py / thick) ** 2) * front * np.clip((R0 * 9 - np.abs(px)) / (R0 * 4), 0, 1) ** 2
+              radial = np.exp(-np.clip(np.abs(px) - R0 * 1.0, 0, None) / (R0 * 3.2))
+              streak = fbm3(np.stack([px * 60, py * 700, np.zeros_like(px)], -1), 5)
+              dust = .55 + .9 * streak
+              doppler = 1 + .45 * np.tanh(-px / R0)
+              t = np.clip((np.abs(px) - R0) / (R0 * 5), 0, 1)[..., None]
+              dcol = lerp(C("#fff4dc"), lerp(C("#ffad55"), C("#6e4524"), t), np.clip(t * 1.6, 0, 1))
+              a = np.clip(band * radial * dust * doppler, 0, 1.4)
+              col = lerp(col, dcol * 1.15, np.clip(a * 1.3, 0, 1)[..., None])
+
+              # ---------- ringed gas giant
+              f1, f2 = frame(PL, 0)
+              qx, qy, qz = gnomonic(d, PL, f1, f2)
+              pfront = qz > 0
+              Rp = np.tan(np.radians(16))
+              rr = np.hypot(qx, qy) / Rp
+              disc = (rr < 1) & pfront
+              nz = np.sqrt(np.clip(1 - rr ** 2, 0, 1))
+              nx, ny = qx / Rp, qy / Rp
+              L = np.array([(BH * f1).sum(), (BH * f2).sum(), (BH * PL).sum()]); L = norm(L)
+              light = np.clip(nx * L[0] + ny * L[1] + nz * L[2], 0, 1) * .85 + .08
+              tilt = np.radians(-18)
+              lat = ny * np.cos(tilt) - nx * np.sin(tilt)
+              bands = fbm3(np.stack([lat * 9, lat * 2 + nx * .3, np.zeros_like(lat)], -1), 5)
+              pcol = lerp(C("#5c5246"), C("#e8dcc4"), np.clip(bands * 1.3 - .1, 0, 1)[..., None])
+              pcol = pcol * light[..., None]
+              limb = np.clip((1 - rr) * 25, 0, 1)
+              col = lerp(col, pcol, (disc * limb)[..., None])
+              atmo = np.exp(-np.abs(rr - 1) / .02) * pfront * .35
+              col = col + atmo[..., None] * C("#d9d2c2")
+              # rings
+              u = qx * np.cos(tilt) + qy * np.sin(tilt)
+              v = -qx * np.sin(tilt) + qy * np.cos(tilt)
+              rho = np.hypot(u, v / .2) / Rp
+              rband = (rho > 1.3) & (rho < 2.5) & pfront
+              rtex = .45 + .55 * np.sin(rho * 38) ** 2 * fbm3(np.stack([rho * 25, np.zeros_like(rho), np.zeros_like(rho)], -1), 3) * 1.6
+              gap = 1 - np.exp(-((rho - 1.95) / .03) ** 2) * .9
+              ralpha = rband * np.clip(rtex * gap, 0, 1) * np.clip((rho - 1.3) * 20, 0, 1) * np.clip((2.5 - rho) * 20, 0, 1)
+              behind = disc & (v > 0)
+              ralpha = ralpha * np.where(behind, 0, 1) * .85
+              rcol = C("#efe3cc") * (.55 + .45 * (u > 0))[..., None]
+              col = lerp(col, rcol, ralpha[..., None])
+              return col
+
+          def landscape_space(d):
+              col = sky_deepspace(d)
+              el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
+              az = np.arctan2(d[..., 0], -d[..., 2])
+              ringv = np.stack([np.cos(az), np.zeros_like(az), np.sin(az)], -1)
+              h = -2 + fbm3(ringv * 4 + 300, 5) * 9
+              tex = fbm3(d * 40, 3)
+              rock = lerp(C("#2a1420"), C("#4a2233"), tex[..., None])
+              return lerp(col, rock, np.clip((h - el) * 2, 0, 1)[..., None])
+
+          if __name__ == "__main__":
+              OUT = os.environ.get("AURORA_OUT", "/home/claude/out")
+              DS = f"{OUT}/AuroraSkies_DeepSpace"
+              shutil.rmtree(DS, ignore_errors=True)
+              N = 1024
+              order = ["bottom", "top", "south", "west", "north", "east"]
+              faces = {f: to_img(sky_deepspace(face_dirs(f, N))) for f in B.FACES}
+              for f, im in faces.items():
+                  im.save(mk(f"{DS}/assets/aurora/textures/sky/night/{f}.png"))
+              sheet = Image.new("RGB", (N * 3, N * 2))
+              for k, f in enumerate(order):
+                  sheet.paste(faces[f], ((k % 3) * N, (k // 3) * N))
+              sheet.save(mk(f"{DS}/assets/minecraft/optifine/sky/world0/sky3.png"))
+              for k, f in enumerate(["north", "east", "south", "west", "top", "bottom"]):
+                  to_img(landscape_space(face_dirs(f, 1024))).save(
+                      mk(f"{DS}/assets/minecraft/textures/gui/title/background/panorama_{k}.png"))
+              # preview looking at the black hole
+              W, H = 1920, 1080
+              x = (np.arange(W) + .5) / W * 2 - 1; y = (np.arange(H) + .5) / H * 2 - 1
+              xx, yy = np.meshgrid(x * 1.7, -y * .95 + .55)
+              yaw = np.radians(-18)
+              dd = np.stack([xx * np.cos(yaw) - np.sin(yaw), yy, -np.cos(yaw) - xx * np.sin(yaw)], -1)
+              dd /= np.linalg.norm(dd, axis=-1, keepdims=True)
+              to_img(landscape_space(dd)).save(mk(f"{OUT}/previews/5_deepspace.png"))
+              icon_d = face_dirs("north", 256) * 1.0
+              B.save_json(f"{DS}/pack.mcmeta", {"pack": {
+                  "pack_format": 46, "supported_formats": {"min_inclusive": 34, "max_inclusive": 120},
+                  "min_format": 34, "max_format": 120,
+                  "description": [{"text": "Aurora Skies ", "color": "aqua", "bold": True},
+                                  {"text": "Deep Space Add-on", "color": "light_purple"}]}})
+              Image.open(f"{OUT}/previews/5_deepspace.png").crop((420, 0, 1500, 1080)).resize((256, 256), Image.LANCZOS).save(f"{DS}/pack.png")
+              print("done")
+          AURORA_EOF
+          mkdir -p "$(dirname 'gen/LIZENZ.txt')"
+          cat > 'gen/LIZENZ.txt' <<'AURORA_EOF'
+          Aurora Skies - Lizenz
+          =====================
+
+          Copyright (c) 2026 [DEIN NAME / STUDIO]. Alle Rechte vorbehalten.
+
+          Alle Texturen, Skyboxen, Sounds und die Musik in diesem Paket sind Originalwerke
+          und enthalten keine Dateien aus Minecraft.
+
+          Du darfst:
+            - das Paket privat nutzen, auch auf Servern und in Videos/Streams.
+
+          Du darfst NICHT:
+            - das Paket oder Teile davon weiterverbreiten, neu hochladen oder weiterverkaufen,
+            - Dateien daraus in eigene Packs oder Mods übernehmen.
+
+          NICHT OFFIZIELLES MINECRAFT-PRODUKT. NICHT VON MOJANG ODER MICROSOFT GENEHMIGT
+          ODER MIT IHNEN VERBUNDEN.
+          AURORA_EOF
+          mkdir -p "$(dirname 'gen/LIESMICH.txt')"
+          cat > 'gen/LIESMICH.txt' <<'AURORA_EOF'
+          AURORA SKIES v1.0 - Resource Pack
+          =================================
+
+          Inhalt
+            - 4 eigene Himmel: Tag (Wolken), Sonnenuntergang, Nacht mit Nordlicht + Milchstraße, End-Nebel
+              (sanfte Übergänge je nach Tageszeit)
+            - eigene Sonne, eigene Mondphasen, eigene Wolken
+            - eigenes Titelbild-Panorama (Sonnenuntergang über Bergen)
+            - eigene UI-Sounds: Button-Klick, Toast rein/raus, Erfolg erreicht, Level-Up, XP
+            - eigene Menümusik (ambient)
+            - eigene Splash-Texte im Hauptmenü
+
+          Installation
+            1. ZIP NICHT entpacken, sondern nach .minecraft/resourcepacks kopieren.
+            2. In Minecraft: Optionen > Ressourcenpakete > "Aurora Skies" aktivieren.
+
+          Himmel benötigen EINE dieser Mods:
+            - OptiFine (Forge/Vanilla) oder
+            - FabricSkyboxes (Fabric/Quilt)
+          Sounds, Musik, Panorama, Sonne/Mond, Wolken und Splashes funktionieren auch ohne Mods.
+
+          Getestet für Java Edition 1.21.x.
+          AURORA_EOF
+
+      - name: Himmel, Texturen und Sounds erzeugen (ca. 5-10 Min.)
+        shell: bash
+        env:
+          AURORA_OUT: ${{ github.workspace }}/out
+          AURORA_MODRES: ${{ github.workspace }}/aurora-mod/src/main/resources
+        run: |
+          set -e
+          cd gen
+          python build.py
+          python deepspace.py
+          rm -rf "$AURORA_MODRES/resourcepacks/aurora_deepspace"
+          cp -r "$AURORA_OUT/AuroraSkies_DeepSpace" "$AURORA_MODRES/resourcepacks/aurora_deepspace"
+          cd "$AURORA_OUT/AuroraSkies_DeepSpace" && zip -qr "$AURORA_OUT/AuroraSkies_DeepSpace_Addon_v1.0.zip" .
+
+      - name: Gradle 8.12 einrichten
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
+
+      - name: Mod bauen
+        working-directory: aurora-mod
+        run: gradle build --no-daemon --stacktrace
+
+      - name: Fertige Mod (.jar) hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-skies-mod-jar
+          path: |
+            aurora-mod/build/libs/*.jar
+            !aurora-mod/build/libs/*-sources.jar
+          if-no-files-found: error
+
+      - name: Resource-Packs hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-skies-resourcepacks
+          path: |
+            out/AuroraSkies_v1.0.zip
+            out/AuroraSkies_DeepSpace_Addon_v1.0.zip
+
+      - name: Vorschaubilder hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-skies-vorschau
+          path: out/previews/*.png
